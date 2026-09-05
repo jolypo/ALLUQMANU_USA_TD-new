@@ -1,0 +1,780 @@
+//@version=6
+indicator("ALLUQMANI SPX Radar V2.1", shorttitle="ALQ V2.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=150)
+
+// ============================================================================
+// ALLUQMANI SPX RADAR V2.1 STABLE FIX
+// Primary use: SPX / SPX500
+// ============================================================================
+
+// 01 CORE
+groupCore = "01 - Signal Engine"
+emaFastLen = input.int(9, "EMA Fast", minval=1, group=groupCore)
+emaMidLen = input.int(20, "EMA Mid", minval=1, group=groupCore)
+emaSlowLen = input.int(50, "EMA Slow", minval=1, group=groupCore)
+emaLongLen = input.int(200, "EMA Long", minval=1, group=groupCore)
+rsiLen = input.int(14, "RSI Length", minval=2, group=groupCore)
+adxLen = input.int(14, "ADX Length", minval=2, group=groupCore)
+atrLen = input.int(14, "ATR Length", minval=2, group=groupCore)
+rvLen = input.int(20, "Relative Volume Length", minval=2, group=groupCore)
+minScore = input.int(70, "Minimum Score", minval=50, maxval=100, group=groupCore)
+minAdx = input.float(18.0, "Minimum ADX", minval=1.0, step=0.5, group=groupCore)
+minRV = input.float(1.05, "Minimum Relative Volume", minval=0.10, step=0.05, group=groupCore)
+confirmClose = input.bool(true, "Confirm Current Candle Close", group=groupCore)
+
+// 02 VOLUME
+groupVolume = "02 - Volume"
+volumeProxySymbol = input.symbol("AMEX:SPY", "SPX Volume Proxy", group=groupVolume)
+useSPYProxy = input.bool(true, "Use SPY Volume Proxy", group=groupVolume)
+
+// 03 MTF
+groupMTF = "03 - Smart Veto"
+useVeto = input.bool(true, "Enable Smart Veto", group=groupMTF)
+tf1 = input.timeframe("5", "TF 1", group=groupMTF)
+tf2 = input.timeframe("15", "TF 2", group=groupMTF)
+tf3 = input.timeframe("60", "TF 3", group=groupMTF)
+tf4 = input.timeframe("240", "TF 4", group=groupMTF)
+requiredTF = input.int(3, "Required Aligned TF", minval=2, maxval=4, group=groupMTF)
+
+// 04 RISK
+groupRisk = "04 - Risk & Targets"
+slATR = input.float(1.25, "Stop ATR", minval=0.20, step=0.05, group=groupRisk)
+tp1R = input.float(1.00, "TP1 R", minval=0.25, step=0.25, group=groupRisk)
+tp2R = input.float(1.75, "TP2 R", minval=0.50, step=0.25, group=groupRisk)
+tp3R = input.float(2.50, "TP3 R", minval=0.75, step=0.25, group=groupRisk)
+minimumRR = input.float(1.50, "Minimum R:R", minval=0.50, step=0.10, group=groupRisk)
+maxTradeBars = input.int(180, "Maximum Active Bars", minval=10, maxval=2000, group=groupRisk)
+showTradeLines = input.bool(true, "Show Entry / SL / TP", group=groupRisk)
+
+// 05 STRUCTURE
+groupStructure = "05 - Structure"
+pivotLen = input.int(5, "Pivot Strength", minval=2, maxval=20, group=groupStructure)
+liquidityATR = input.float(0.35, "Liquidity ATR Width", minval=0.05, step=0.05, group=groupStructure)
+showLiquidity = input.bool(true, "Show Liquidity Proxy", group=groupStructure)
+showSR = input.bool(true, "Show Support / Resistance", group=groupStructure)
+showPrevLevels = input.bool(true, "Show Previous Cash Levels", group=groupStructure)
+showOpeningRange = input.bool(true, "Show Opening Range", group=groupStructure)
+
+// 06 BREAKOUT
+groupBreak = "06 - Breakout & Retest"
+breakoutBufferATR = input.float(0.10, "Breakout Buffer ATR", minval=0.0, step=0.05, group=groupBreak)
+retestToleranceATR = input.float(0.20, "Retest Tolerance ATR", minval=0.05, step=0.05, group=groupBreak)
+maxRetestBars = input.int(12, "Maximum Retest Bars", minval=2, maxval=100, group=groupBreak)
+maxChaseATR = input.float(0.75, "Maximum Chase ATR", minval=0.10, step=0.05, group=groupBreak)
+requireBreakoutVolume = input.bool(true, "Require Breakout Volume", group=groupBreak)
+
+// 07 PRO
+groupPro = "07 - Professional Filters"
+cashSessionOnly = input.bool(true, "READY Signals Cash Session Only", group=groupPro)
+maxATRBudget = input.float(1.10, "Maximum RTH ATR Used", minval=0.50, maxval=2.0, step=0.05, group=groupPro)
+softVWAPDistanceATR = input.float(1.20, "Soft VWAP Distance vs 15m ATR", minval=0.25, step=0.10, group=groupPro)
+hardVWAPDistanceATR = input.float(2.00, "Hard VWAP Distance vs 15m ATR", minval=0.50, step=0.10, group=groupPro)
+adxRiseBars = input.int(3, "ADX Rising Lookback", minval=1, maxval=10, group=groupPro)
+
+// 08 EARLY
+groupEarly = "08 - Early Reversal"
+showEarly = input.bool(true, "Enable Early Reversal", group=groupEarly)
+grade1Score = input.int(55, "Grade 1", minval=40, maxval=90, group=groupEarly)
+grade2Score = input.int(62, "Grade 2", minval=45, maxval=95, group=groupEarly)
+grade3Score = input.int(68, "Grade 3", minval=50, maxval=99, group=groupEarly)
+
+// 09 PATTERNS
+groupPattern = "09 - Patterns"
+showPatterns = input.bool(true, "Double Top / Bottom", group=groupPattern)
+patternATR = input.float(0.45, "Pattern ATR Tolerance", minval=0.05, step=0.05, group=groupPattern)
+patternMinBars = input.int(8, "Minimum Pivot Distance", minval=3, group=groupPattern)
+patternMaxBars = input.int(100, "Maximum Pivot Distance", minval=10, group=groupPattern)
+
+// 10 HERO
+groupHero = "10 - Hero Zero"
+heroEnabled = input.bool(false, "Enable Hero Zero", group=groupHero)
+heroHour = input.int(15, "Anchor Hour NY", minval=0, maxval=23, group=groupHero)
+heroMinute = input.int(52, "Anchor Minute NY", minval=0, maxval=59, group=groupHero)
+strikeStep = input.float(5.0, "Strike Increment", minval=0.5, step=0.5, group=groupHero)
+
+// 11 VIX
+groupVIX = "11 - VIX"
+useVIX = input.bool(true, "Enable VIX", group=groupVIX)
+vixSymbol = input.symbol("CBOE:VIX", "VIX Symbol", group=groupVIX)
+
+// 12 NEXT
+groupNext = "12 - Next Session"
+enableNextPlan = input.bool(true, "Enable Frozen Next Session Plan", group=groupNext)
+require15mNextConfirm = input.bool(true, "Require 15m Close Confirmation", group=groupNext)
+nextTP1ATR = input.float(0.25, "Next TP1 Daily ATR", minval=0.05, step=0.05, group=groupNext)
+nextTP2ATR = input.float(0.45, "Next TP2 Daily ATR", minval=0.10, step=0.05, group=groupNext)
+nextTP3ATR = input.float(0.65, "Next TP3 Daily ATR", minval=0.15, step=0.05, group=groupNext)
+
+// 13 PANELS
+groupPanels = "13 - Panels"
+showAnalysisPanel = input.bool(true, "Show Analysis Panel", group=groupPanels)
+showPlanPanel = input.bool(true, "Show Plan Panel", group=groupPanels)
+
+// 14 VISUALS
+groupVisual = "14 - Visuals"
+showEMA = input.bool(true, "Show EMA", group=groupVisual)
+showVWAP = input.bool(true, "Show Cash VWAP", group=groupVisual)
+showSignals = input.bool(true, "Show CALL / PUT Labels", group=groupVisual)
+
+// SESSIONS
+inCashSession = not na(time(timeframe.period, "0930-1600", "America/New_York"))
+inOpeningRange = not na(time(timeframe.period, "0930-0945", "America/New_York"))
+inPremarket = not na(time(timeframe.period, "0400-0930", "America/New_York"))
+inAfterHours = not na(time(timeframe.period, "1600-2000", "America/New_York"))
+bool cashSessionStarted = inCashSession and not inCashSession[1]
+bool cashSessionEnded = not inCashSession and inCashSession[1]
+
+string marketSession = "MARKET CLOSED"
+if inCashSession
+    marketSession := "CASH OPEN"
+else if inPremarket
+    marketSession := "PREMARKET"
+else if inAfterHours
+    marketSession := "AFTER HOURS"
+
+// CORE
+ema9 = ta.ema(close, emaFastLen)
+ema20 = ta.ema(close, emaMidLen)
+ema50 = ta.ema(close, emaSlowLen)
+ema200 = ta.ema(close, emaLongLen)
+rsiValue = ta.rsi(close, rsiLen)
+[macdLine, macdSignal, macdHistogram] = ta.macd(close, 12, 26, 9)
+[plusDI, minusDI, adxValue] = ta.dmi(adxLen, adxLen)
+atrValue = ta.atr(atrLen)
+atr15 = request.security(syminfo.tickerid, "15", ta.atr(14), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+dailyATR = request.security(syminfo.tickerid, "D", ta.atr(14)[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+confirmed15Close = request.security(syminfo.tickerid, "15", close[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+
+// ADX
+bool adxRising = adxValue > adxValue[adxRiseBars]
+bool adxFalling = adxValue < adxValue[adxRiseBars]
+string adxQuality = "WEAK"
+if adxValue >= 25
+    adxQuality := adxRising ? "STRONG RISING" : "STRONG WEAKENING"
+else if adxValue >= minAdx
+    adxQuality := adxRising ? "BUILDING" : "MODERATE"
+else
+    adxQuality := adxRising ? "WEAK BUILDING" : "WEAK"
+
+// VOLUME
+spyVolume = request.security(volumeProxySymbol, timeframe.period, volume, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+spyVolumeAverage = request.security(volumeProxySymbol, timeframe.period, ta.sma(volume, rvLen), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+float relativeVolume = na
+if useSPYProxy
+    if not na(spyVolumeAverage) and spyVolumeAverage > 0
+        relativeVolume := spyVolume / spyVolumeAverage
+else
+    chartVolAvg = ta.sma(volume, rvLen)
+    if not na(chartVolAvg) and chartVolAvg > 0
+        relativeVolume := volume / chartVolAvg
+
+bool volumeOK = inCashSession and not na(relativeVolume) and relativeVolume >= minRV
+string volumeQuality = "OFF HOURS"
+if inCashSession
+    if na(relativeVolume)
+        volumeQuality := "N/A"
+    else if relativeVolume < 0.80
+        volumeQuality := "WEAK"
+    else if relativeVolume < 1.20
+        volumeQuality := "NORMAL"
+    else if relativeVolume < 2.00
+        volumeQuality := "STRONG"
+    else
+        volumeQuality := "SURGE"
+
+// CASH VWAP
+var float cashVWAPPV = na
+var float cashVWAPVolume = na
+var float cashVWAP = na
+if cashSessionStarted
+    cashVWAPPV := hlc3 * spyVolume
+    cashVWAPVolume := spyVolume
+else if inCashSession
+    cashVWAPPV := na(cashVWAPPV) ? hlc3 * spyVolume : cashVWAPPV + hlc3 * spyVolume
+    cashVWAPVolume := na(cashVWAPVolume) ? spyVolume : cashVWAPVolume + spyVolume
+if inCashSession and not na(cashVWAPVolume) and cashVWAPVolume > 0
+    cashVWAP := cashVWAPPV / cashVWAPVolume
+
+// CASH SESSION HLC
+var float cashHigh = na
+var float cashLow = na
+var float previousCashHigh = na
+var float previousCashLow = na
+var float previousCashClose = na
+
+if cashSessionStarted
+    cashHigh := high
+    cashLow := low
+if inCashSession
+    cashHigh := na(cashHigh) ? high : math.max(cashHigh, high)
+    cashLow := na(cashLow) ? low : math.min(cashLow, low)
+if cashSessionEnded
+    previousCashHigh := cashHigh
+    previousCashLow := cashLow
+    previousCashClose := close[1]
+
+// OPENING RANGE
+var float openingRangeHigh = na
+var float openingRangeLow = na
+if cashSessionStarted
+    openingRangeHigh := na
+    openingRangeLow := na
+if inOpeningRange
+    openingRangeHigh := na(openingRangeHigh) ? high : math.max(openingRangeHigh, high)
+    openingRangeLow := na(openingRangeLow) ? low : math.min(openingRangeLow, low)
+
+// ATR BUDGET
+float cashRange = na
+float atrBudget = na
+if not na(cashHigh) and not na(cashLow)
+    cashRange := cashHigh - cashLow
+if not na(dailyATR) and dailyATR > 0 and not na(cashRange)
+    atrBudget := cashRange / dailyATR
+string atrBudgetStatus = "N/A"
+if not na(atrBudget)
+    atrBudgetStatus := atrBudget < 0.50 ? "LOW" : atrBudget < 0.80 ? "NORMAL" : atrBudget < 1.00 ? "HIGH" : "EXTENDED"
+bool atrBudgetExceeded = inCashSession and not na(atrBudget) and atrBudget >= maxATRBudget
+
+// MTF
+f_trend() =>
+    local20 = ta.ema(close, emaMidLen)
+    local50 = ta.ema(close, emaSlowLen)
+    local200 = ta.ema(close, emaLongLen)
+    int result = 0
+    if close > local20 and local20 > local50 and local50 > local200
+        result := 1
+    if close < local20 and local20 < local50 and local50 < local200
+        result := -1
+    result
+
+trendTF1 = request.security(syminfo.tickerid, tf1, f_trend(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+trendTF2 = request.security(syminfo.tickerid, tf2, f_trend(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+trendTF3 = request.security(syminfo.tickerid, tf3, f_trend(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+trendTF4 = request.security(syminfo.tickerid, tf4, f_trend(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+
+int bullTF = (trendTF1 == 1 ? 1 : 0) + (trendTF2 == 1 ? 1 : 0) + (trendTF3 == 1 ? 1 : 0) + (trendTF4 == 1 ? 1 : 0)
+int bearTF = (trendTF1 == -1 ? 1 : 0) + (trendTF2 == -1 ? 1 : 0) + (trendTF3 == -1 ? 1 : 0) + (trendTF4 == -1 ? 1 : 0)
+bool bullVetoOK = not useVeto or bullTF >= requiredTF
+bool bearVetoOK = not useVeto or bearTF >= requiredTF
+
+// SCORE
+float bullScore = 0.0
+float bearScore = 0.0
+bullScore += ema9 > ema20 ? 12 : 0
+bullScore += ema20 > ema50 ? 10 : 0
+bullScore += close > ema200 ? 8 : 0
+bullScore += not na(cashVWAP) and close > cashVWAP ? 10 : 0
+bullScore += rsiValue >= 52 and rsiValue <= 72 ? 10 : rsiValue > 50 ? 5 : 0
+bullScore += macdLine > macdSignal and macdHistogram > 0 ? 10 : 0
+bullScore += plusDI > minusDI ? 8 : 0
+bullScore += adxValue >= minAdx ? 8 : adxRising ? 4 : 0
+bullScore += inCashSession and volumeOK ? 8 : 0
+bullScore += bullTF * 4
+
+bearScore += ema9 < ema20 ? 12 : 0
+bearScore += ema20 < ema50 ? 10 : 0
+bearScore += close < ema200 ? 8 : 0
+bearScore += not na(cashVWAP) and close < cashVWAP ? 10 : 0
+bearScore += rsiValue <= 48 and rsiValue >= 28 ? 10 : rsiValue < 50 ? 5 : 0
+bearScore += macdLine < macdSignal and macdHistogram < 0 ? 10 : 0
+bearScore += minusDI > plusDI ? 8 : 0
+bearScore += adxValue >= minAdx ? 8 : adxRising ? 4 : 0
+bearScore += inCashSession and volumeOK ? 8 : 0
+bearScore += bearTF * 4
+
+bullScore := math.min(bullScore, 100)
+bearScore := math.min(bearScore, 100)
+
+// PIVOTS
+pivotHigh = ta.pivothigh(high, pivotLen, pivotLen)
+pivotLow = ta.pivotlow(low, pivotLen, pivotLen)
+var float lastHigh = na
+var float lastLow = na
+if not na(pivotHigh)
+    lastHigh := pivotHigh
+if not na(pivotLow)
+    lastLow := pivotLow
+
+// LIQUIDITY
+var box demandBox = na
+var box supplyBox = na
+if showLiquidity and not na(pivotLow)
+    if not na(demandBox)
+        box.delete(demandBox)
+    demandBox := box.new(bar_index-pivotLen, pivotLow + atrValue[pivotLen] * liquidityATR, bar_index+20, pivotLow - atrValue[pivotLen] * liquidityATR, extend=extend.right, bgcolor=color.new(color.green, 91), border_color=color.new(color.green, 55))
+if showLiquidity and not na(pivotHigh)
+    if not na(supplyBox)
+        box.delete(supplyBox)
+    supplyBox := box.new(bar_index-pivotLen, pivotHigh + atrValue[pivotLen] * liquidityATR, bar_index+20, pivotHigh - atrValue[pivotLen] * liquidityATR, extend=extend.right, bgcolor=color.new(color.red, 91), border_color=color.new(color.red, 55))
+
+// VWAP DISTANCE
+float vwapDistanceATR = na
+if inCashSession and not na(cashVWAP) and not na(atr15) and atr15 > 0
+    vwapDistanceATR := math.abs(close - cashVWAP) / atr15
+bool softVWAPExtended = inCashSession and not na(vwapDistanceATR) and vwapDistanceATR >= softVWAPDistanceATR
+bool hardVWAPExtended = inCashSession and not na(vwapDistanceATR) and vwapDistanceATR >= hardVWAPDistanceATR
+bool hardNoTrade = inCashSession and (hardVWAPExtended or atrBudgetExceeded)
+
+// REGIME
+string marketRegime = "RANGE"
+if adxValue >= 25
+    marketRegime := bullTF >= 3 ? "BULL TREND" : bearTF >= 3 ? "BEAR TREND" : "VOLATILE"
+else if adxValue >= minAdx
+    marketRegime := bullTF >= 3 ? "BULL BUILD" : bearTF >= 3 ? "BEAR BUILD" : "MIXED"
+
+// BIAS
+bool planIsCall = bullScore >= bearScore
+string bias = planIsCall ? "CALL" : "PUT"
+color biasColor = planIsCall ? color.green : color.red
+
+// STRUCTURAL TRIGGER
+float callResistance = na
+if not na(lastHigh) and lastHigh > close
+    callResistance := lastHigh
+if not na(previousCashHigh) and previousCashHigh > close
+    callResistance := na(callResistance) ? previousCashHigh : math.min(callResistance, previousCashHigh)
+if not na(openingRangeHigh) and openingRangeHigh > close
+    callResistance := na(callResistance) ? openingRangeHigh : math.min(callResistance, openingRangeHigh)
+if na(callResistance)
+    callResistance := not na(cashHigh) ? cashHigh : close
+
+float putSupport = na
+if not na(lastLow) and lastLow < close
+    putSupport := lastLow
+if not na(previousCashLow) and previousCashLow < close
+    putSupport := na(putSupport) ? previousCashLow : math.max(putSupport, previousCashLow)
+if not na(openingRangeLow) and openingRangeLow < close
+    putSupport := na(putSupport) ? openingRangeLow : math.max(putSupport, openingRangeLow)
+if na(putSupport)
+    putSupport := not na(cashLow) ? cashLow : close
+
+float callActivation = callResistance + atrValue * breakoutBufferATR
+float putActivation = putSupport - atrValue * breakoutBufferATR
+float planActivation = planIsCall ? callActivation : putActivation
+float liveEntryLow = planIsCall ? planActivation : planActivation - atrValue * 0.20
+float liveEntryHigh = planIsCall ? planActivation + atrValue * 0.20 : planActivation
+float liveStop = planIsCall ? planActivation - atrValue * slATR : planActivation + atrValue * slATR
+float liveRiskDistance = atrValue * slATR
+float liveTP1 = planIsCall ? planActivation + liveRiskDistance * tp1R : planActivation - liveRiskDistance * tp1R
+float liveTP2 = planIsCall ? planActivation + liveRiskDistance * tp2R : planActivation - liveRiskDistance * tp2R
+float liveTP3 = planIsCall ? planActivation + liveRiskDistance * tp3R : planActivation - liveRiskDistance * tp3R
+float liveRisk = math.abs(planActivation - liveStop)
+float liveReward = math.abs(liveTP2 - planActivation)
+float liveRR = liveRisk > 0 ? liveReward / liveRisk : na
+bool rrOK = not na(liveRR) and liveRR >= minimumRR
+
+// BREAKOUT
+var int breakoutDirection = 0
+var float breakoutLevel = na
+var int breakoutBar = na
+var bool breakoutRetested = false
+var bool breakoutFailed = false
+
+bool confirmedCurrent = not confirmClose or barstate.isconfirmed
+bool newCallBreakout = false
+bool newPutBreakout = false
+
+if inCashSession and confirmedCurrent
+    if close > callActivation and close[1] <= callActivation[1] and (not requireBreakoutVolume or volumeOK)
+        newCallBreakout := true
+    if close < putActivation and close[1] >= putActivation[1] and (not requireBreakoutVolume or volumeOK)
+        newPutBreakout := true
+
+if newCallBreakout
+    breakoutDirection := 1
+    breakoutLevel := callActivation
+    breakoutBar := bar_index
+    breakoutRetested := false
+    breakoutFailed := false
+
+if newPutBreakout
+    breakoutDirection := -1
+    breakoutLevel := putActivation
+    breakoutBar := bar_index
+    breakoutRetested := false
+    breakoutFailed := false
+
+if breakoutDirection == 1 and not breakoutRetested and bar_index > breakoutBar
+    if low <= breakoutLevel + atrValue * retestToleranceATR and close >= breakoutLevel
+        breakoutRetested := true
+
+if breakoutDirection == -1 and not breakoutRetested and bar_index > breakoutBar
+    if high >= breakoutLevel - atrValue * retestToleranceATR and close <= breakoutLevel
+        breakoutRetested := true
+
+if breakoutDirection == 1 and close < breakoutLevel - atrValue * retestToleranceATR
+    breakoutFailed := true
+    breakoutDirection := 0
+if breakoutDirection == -1 and close > breakoutLevel + atrValue * retestToleranceATR
+    breakoutFailed := true
+    breakoutDirection := 0
+
+if breakoutDirection != 0 and not breakoutRetested and not na(breakoutBar) and bar_index - breakoutBar > maxRetestBars
+    breakoutDirection := 0
+
+float chaseATR = 0.0
+if breakoutDirection == 1 and atrValue > 0
+    chaseATR := (close - breakoutLevel) / atrValue
+if breakoutDirection == -1 and atrValue > 0
+    chaseATR := (breakoutLevel - close) / atrValue
+bool chaseTooFar = chaseATR > maxChaseATR
+
+bool live15Confirmed = true
+if require15mNextConfirm
+    live15Confirmed := planIsCall ? confirmed15Close > planActivation : confirmed15Close < planActivation
+
+bool sessionOK = not cashSessionOnly or inCashSession
+bool bullReady = bullScore >= minScore and bullVetoOK and adxValue >= minAdx and volumeOK and rrOK and not hardNoTrade and sessionOK and close > ema20
+bool bearReady = bearScore >= minScore and bearVetoOK and adxValue >= minAdx and volumeOK and rrOK and not hardNoTrade and sessionOK and close < ema20
+
+bool rawCall = confirmedCurrent and bullReady and breakoutDirection == 1 and breakoutRetested and not chaseTooFar and not softVWAPExtended and live15Confirmed
+bool rawPut = confirmedCurrent and bearReady and breakoutDirection == -1 and breakoutRetested and not chaseTooFar and not softVWAPExtended and live15Confirmed
+bool callSignal = rawCall and not rawCall[1]
+bool putSignal = rawPut and not rawPut[1]
+
+// ACTIVE TRADE
+var int tradeDirection = 0
+var float entryPrice = na
+var float stopPrice = na
+var float target1 = na
+var float target2 = na
+var float target3 = na
+var int tradeStart = na
+var bool tp1Hit = false
+var bool tp2Hit = false
+var bool tp3Hit = false
+var line entryLine = na
+var line stopLine = na
+var line target1Line = na
+var line target2Line = na
+var line target3Line = na
+
+if tradeDirection == 0 and (callSignal or putSignal)
+    if not na(entryLine)
+        line.delete(entryLine)
+    if not na(stopLine)
+        line.delete(stopLine)
+    if not na(target1Line)
+        line.delete(target1Line)
+    if not na(target2Line)
+        line.delete(target2Line)
+    if not na(target3Line)
+        line.delete(target3Line)
+
+    tradeDirection := callSignal ? 1 : -1
+    entryPrice := close
+    float activeRisk = atrValue * slATR
+    stopPrice := tradeDirection == 1 ? entryPrice - activeRisk : entryPrice + activeRisk
+    target1 := tradeDirection == 1 ? entryPrice + activeRisk * tp1R : entryPrice - activeRisk * tp1R
+    target2 := tradeDirection == 1 ? entryPrice + activeRisk * tp2R : entryPrice - activeRisk * tp2R
+    target3 := tradeDirection == 1 ? entryPrice + activeRisk * tp3R : entryPrice - activeRisk * tp3R
+    tradeStart := bar_index
+    tp1Hit := false
+    tp2Hit := false
+    tp3Hit := false
+
+    if showTradeLines
+        entryLine := line.new(bar_index, entryPrice, bar_index+1, entryPrice, extend=extend.right, color=color.aqua)
+        stopLine := line.new(bar_index, stopPrice, bar_index+1, stopPrice, extend=extend.right, color=color.red, width=2)
+        target1Line := line.new(bar_index, target1, bar_index+1, target1, extend=extend.right, color=color.new(color.green, 30), style=line.style_dotted)
+        target2Line := line.new(bar_index, target2, bar_index+1, target2, extend=extend.right, color=color.new(color.green, 15), style=line.style_dashed)
+        target3Line := line.new(bar_index, target3, bar_index+1, target3, extend=extend.right, color=color.green, width=2)
+
+    if showSignals
+        label.new(bar_index, tradeDirection == 1 ? low : high, tradeDirection == 1 ? "CALL\nScore " + str.tostring(math.round(bullScore)) : "PUT\nScore " + str.tostring(math.round(bearScore)), style=tradeDirection == 1 ? label.style_label_up : label.style_label_down, color=tradeDirection == 1 ? color.green : color.red, textcolor=color.white)
+
+if tradeDirection == 1
+    if not tp1Hit and high >= target1
+        tp1Hit := true
+        label.new(bar_index, target1, "TP1", style=label.style_label_down, color=color.green, textcolor=color.white, size=size.tiny)
+    if not tp2Hit and high >= target2
+        tp2Hit := true
+        label.new(bar_index, target2, "TP2", style=label.style_label_down, color=color.green, textcolor=color.white, size=size.tiny)
+    if not tp3Hit and high >= target3
+        tp3Hit := true
+        label.new(bar_index, target3, "TP3", style=label.style_label_down, color=color.green, textcolor=color.white, size=size.tiny)
+        tradeDirection := 0
+    if tradeDirection == 1 and low <= stopPrice
+        label.new(bar_index, stopPrice, "SL", style=label.style_label_up, color=color.red, textcolor=color.white, size=size.tiny)
+        tradeDirection := 0
+
+if tradeDirection == -1
+    if not tp1Hit and low <= target1
+        tp1Hit := true
+        label.new(bar_index, target1, "TP1", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.tiny)
+    if not tp2Hit and low <= target2
+        tp2Hit := true
+        label.new(bar_index, target2, "TP2", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.tiny)
+    if not tp3Hit and low <= target3
+        tp3Hit := true
+        label.new(bar_index, target3, "TP3", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.tiny)
+        tradeDirection := 0
+    if tradeDirection == -1 and high >= stopPrice
+        label.new(bar_index, stopPrice, "SL", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
+        tradeDirection := 0
+
+if tradeDirection != 0 and not na(tradeStart) and bar_index - tradeStart >= maxTradeBars
+    label.new(bar_index, close, "SETUP EXPIRED", style=label.style_label_left, color=color.gray, textcolor=color.white, size=size.tiny)
+    tradeDirection := 0
+
+// VIX
+vixValue = request.security(vixSymbol, timeframe.period, close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+string vixStatus = "N/A"
+if useVIX and not na(vixValue)
+    vixStatus := vixValue < 15 ? "CALM" : vixValue < 22 ? "NORMAL" : vixValue < 30 ? "ELEVATED" : "HIGH"
+if not inCashSession and not na(vixValue)
+    vixStatus := vixStatus + " CLOSED"
+
+// QUALITY
+float bestScore = math.max(bullScore, bearScore)
+string quality = "WAIT"
+if bestScore >= 70
+    quality := "B"
+if bestScore >= 78
+    quality := "A"
+if bestScore >= 85 and adxValue >= 25 and inCashSession and volumeOK
+    quality := "A+"
+
+// NEXT SESSION PLAN
+var bool nextPlanExists = false
+var int nextPlanDirection = 0
+var int nextPlanState = 0
+var float nextTrigger = na
+var float nextStop = na
+var float nextTP1 = na
+var float nextTP2 = na
+var float nextTP3 = na
+var float nextSafeStrike = na
+var float nextBaseStrike = na
+var float nextFastStrike = na
+var string nextStrikeWarning = "N/A"
+
+if enableNextPlan and cashSessionEnded
+    bool closeBiasCall = bearScore[1] <= bullScore[1]
+    float freezeATR = atrValue[1]
+    float triggerBuffer = freezeATR * breakoutBufferATR
+
+    nextPlanExists := true
+    nextPlanState := 1
+    nextPlanDirection := closeBiasCall ? 1 : -1
+    nextTrigger := closeBiasCall ? cashHigh + triggerBuffer : cashLow - triggerBuffer
+    nextStop := closeBiasCall ? nextTrigger - freezeATR * slATR : nextTrigger + freezeATR * slATR
+
+    if not na(dailyATR)
+        nextTP1 := closeBiasCall ? nextTrigger + dailyATR * nextTP1ATR : nextTrigger - dailyATR * nextTP1ATR
+        nextTP2 := closeBiasCall ? nextTrigger + dailyATR * nextTP2ATR : nextTrigger - dailyATR * nextTP2ATR
+        nextTP3 := closeBiasCall ? nextTrigger + dailyATR * nextTP3ATR : nextTrigger - dailyATR * nextTP3ATR
+
+    int fastSteps = not na(dailyATR) and dailyATR >= 50 ? 4 : not na(dailyATR) and dailyATR >= 30 ? 3 : 2
+
+    if closeBiasCall
+        nextSafeStrike := math.floor(nextTrigger / strikeStep) * strikeStep
+        nextBaseStrike := math.ceil(nextTrigger / strikeStep) * strikeStep
+        nextFastStrike := nextBaseStrike + strikeStep * fastSteps
+    else
+        nextSafeStrike := math.ceil(nextTrigger / strikeStep) * strikeStep
+        nextBaseStrike := math.floor(nextTrigger / strikeStep) * strikeStep
+        nextFastStrike := nextBaseStrike - strikeStep * fastSteps
+
+    nextStrikeWarning := "OK"
+    if closeBiasCall and not na(nextTP2) and nextFastStrike > nextTP2
+        nextStrikeWarning := "FAST TOO FAR"
+    if not closeBiasCall and not na(nextTP2) and nextFastStrike < nextTP2
+        nextStrikeWarning := "FAST TOO FAR"
+
+if nextPlanExists and inCashSession
+    if nextPlanDirection == 1 and low <= nextStop
+        nextPlanState := 6
+    if nextPlanDirection == -1 and high >= nextStop
+        nextPlanState := 6
+
+if nextPlanExists and inCashSession and nextPlanState == 1
+    if nextPlanDirection == 1 and high >= nextTrigger
+        nextPlanState := 2
+    if nextPlanDirection == -1 and low <= nextTrigger
+        nextPlanState := 2
+
+if nextPlanExists and inCashSession and nextPlanState == 2
+    bool confirmNext = not require15mNextConfirm
+    if require15mNextConfirm
+        confirmNext := nextPlanDirection == 1 ? confirmed15Close > nextTrigger : confirmed15Close < nextTrigger
+    if confirmNext
+        nextPlanState := 3
+
+if nextPlanExists and inCashSession and nextPlanState == 3
+    if nextPlanDirection == 1 and low <= nextTrigger + atrValue * retestToleranceATR and close >= nextTrigger
+        nextPlanState := 4
+    if nextPlanDirection == -1 and high >= nextTrigger - atrValue * retestToleranceATR and close <= nextTrigger
+        nextPlanState := 4
+
+if nextPlanExists and inCashSession and nextPlanState == 4
+    bool nextReady = true
+    if nextPlanDirection == 1
+        nextReady := bullScore >= minScore and bullVetoOK
+    else
+        nextReady := bearScore >= minScore and bearVetoOK
+    nextReady := nextReady and adxValue >= minAdx and volumeOK and not hardNoTrade
+    if nextReady
+        nextPlanState := 5
+
+string nextStateText = "NO PLAN"
+if nextPlanExists
+    nextStateText := nextPlanState == 1 ? "PENDING" : nextPlanState == 2 ? "TRIGGERED" : nextPlanState == 3 ? "WAIT RETEST" : nextPlanState == 4 ? "RETEST OK" : nextPlanState == 5 ? "READY" : nextPlanState == 6 ? "INVALIDATED" : "EXPIRED"
+
+// ACTION
+string actionText = "WAIT"
+color actionColor = color.gray
+if not inCashSession
+    actionText := nextPlanExists ? (nextPlanDirection == 1 ? "NEXT: WATCH CALL" : "NEXT: WATCH PUT") : "MARKET CLOSED"
+else if tradeDirection == 1
+    actionText := "CALL ACTIVE"
+    actionColor := color.green
+else if tradeDirection == -1
+    actionText := "PUT ACTIVE"
+    actionColor := color.red
+else if hardNoTrade
+    actionText := "NO TRADE"
+else if planIsCall
+    actionText := bullScore < minScore ? "WATCH CALL" : adxValue < minAdx ? "WATCH CALL" : breakoutDirection == 0 ? "WAIT BREAK" : not breakoutRetested ? "WAIT RETEST" : chaseTooFar ? "DO NOT CHASE" : softVWAPExtended ? "WAIT RETEST" : not live15Confirmed ? "WAIT 15M" : not rrOK ? "WAIT R:R" : "READY CALL"
+    if actionText == "READY CALL"
+        actionColor := color.green
+else
+    actionText := bearScore < minScore ? "WATCH PUT" : adxValue < minAdx ? "WATCH PUT" : breakoutDirection == 0 ? "WAIT BREAK" : not breakoutRetested ? "WAIT RETEST" : chaseTooFar ? "DO NOT CHASE" : softVWAPExtended ? "WAIT RETEST" : not live15Confirmed ? "WAIT 15M" : not rrOK ? "WAIT R:R" : "READY PUT"
+    if actionText == "READY PUT"
+        actionColor := color.red
+
+string reasonText = not inCashSession ? "NEXT SESSION PLAN ONLY" : hardNoTrade ? (atrBudgetExceeded ? "RTH RANGE EXTENDED" : "VWAP HARD EXTENSION") : adxValue < minAdx ? (adxRising ? "ADX BUILDING" : "ADX WEAK") : not volumeOK ? "LOW RVOL" : softVWAPExtended ? "WAIT VWAP RETEST" : chaseTooFar ? "PRICE TOO FAR" : not rrOK ? "LOW R:R" : "CONDITIONS NORMAL"
+
+// HERO ZERO
+newYorkHour = hour(time, "America/New_York")
+newYorkMinute = minute(time, "America/New_York")
+bool heroAnchor = heroEnabled and inCashSession and newYorkHour == heroHour and newYorkMinute == heroMinute
+var float heroHigh = na
+var float heroLow = na
+if heroAnchor
+    heroHigh := high
+    heroLow := low
+bool heroCall = heroEnabled and inCashSession and not na(heroHigh) and ta.crossover(close, heroHigh)
+bool heroPut = heroEnabled and inCashSession and not na(heroLow) and ta.crossunder(close, heroLow)
+heroStrike = math.round(close / strikeStep) * strikeStep
+
+if heroCall
+    label.new(bar_index, low, "HERO CALL\nStrike " + str.tostring(heroStrike), style=label.style_label_up, color=color.green, textcolor=color.white)
+if heroPut
+    label.new(bar_index, high, "HERO PUT\nStrike " + str.tostring(heroStrike), style=label.style_label_down, color=color.red, textcolor=color.white)
+
+// HELPER
+f_tfText(value) =>
+    value == 1 ? "BULL" : value == -1 ? "BEAR" : "MIX"
+
+// PLOTS
+plot(showEMA ? ema9 : na, title="EMA 9", color=color.teal)
+plot(showEMA ? ema20 : na, title="EMA 20", color=color.yellow)
+plot(showEMA ? ema50 : na, title="EMA 50", color=color.orange)
+plot(showEMA ? ema200 : na, title="EMA 200", color=color.blue, linewidth=2)
+plot(showVWAP ? cashVWAP : na, title="SPX Cash VWAP Proxy", color=color.fuchsia, linewidth=2)
+plot(showSR ? lastHigh : na, title="Resistance", color=color.new(color.red, 35), style=plot.style_stepline)
+plot(showSR ? lastLow : na, title="Support", color=color.new(color.green, 35), style=plot.style_stepline)
+plot(showPrevLevels ? previousCashHigh : na, title="Previous Cash High", color=color.new(color.red, 55), style=plot.style_linebr)
+plot(showPrevLevels ? previousCashLow : na, title="Previous Cash Low", color=color.new(color.green, 55), style=plot.style_linebr)
+plot(showPrevLevels ? previousCashClose : na, title="Previous Cash Close", color=color.new(color.gray, 55), style=plot.style_linebr)
+plot(showOpeningRange ? openingRangeHigh : na, title="OR High", color=color.new(color.orange, 25), style=plot.style_linebr)
+plot(showOpeningRange ? openingRangeLow : na, title="OR Low", color=color.new(color.orange, 25), style=plot.style_linebr)
+
+// ANALYSIS PANEL
+var table analysisPanel = table.new(position.top_right, 2, 17, border_width=1)
+if showAnalysisPanel and barstate.islast
+    table.cell(analysisPanel, 0, 0, "ALQ ANALYSIS", bgcolor=color.black, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 0, "V2.1", bgcolor=color.black, text_color=color.aqua, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 1, "MARKET", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 1, marketSession, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 2, "BIAS", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 2, bias, bgcolor=biasColor, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 3, "SCORE C/P", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 3, str.tostring(math.round(bullScore)) + "/" + str.tostring(math.round(bearScore)), text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 4, "PROBABILITY", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 4, "N/A", text_color=color.gray, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 5, "QUALITY", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 5, quality, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 6, "MTF 5/15", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 6, f_tfText(trendTF1) + "/" + f_tfText(trendTF2), text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 7, "MTF 60/240", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 7, f_tfText(trendTF3) + "/" + f_tfText(trendTF4), text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 8, "ADX", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 8, str.tostring(adxValue, "#.0") + " " + adxQuality, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 9, "RVOL", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 9, na(relativeVolume) ? "N/A" : str.tostring(relativeVolume, "#.00") + " " + volumeQuality, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 10, "VOL SOURCE", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 10, "SPY PROXY", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 11, "VIX", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 11, na(vixValue) ? "N/A" : str.tostring(vixValue, "#.00") + " " + vixStatus, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 12, "REGIME", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 12, marketRegime, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 13, "ATR USED", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 13, na(atrBudget) ? "N/A" : str.tostring(atrBudget * 100, "#") + "% " + atrBudgetStatus, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 14, "VWAP DIST", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 14, na(vwapDistanceATR) ? "OFF HOURS" : str.tostring(vwapDistanceATR, "#.00") + " x15ATR", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 15, "SESSION", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 15, marketSession, text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 0, 16, "ACTION", text_color=color.white, text_size=size.tiny)
+    table.cell(analysisPanel, 1, 16, actionText, bgcolor=actionColor, text_color=color.white, text_size=size.tiny)
+else if not showAnalysisPanel and barstate.islast
+    table.clear(analysisPanel, 0, 0, 1, 16)
+
+// PLAN PANEL
+var table planPanel = table.new(position.bottom_right, 2, 22, border_width=1)
+if showPlanPanel and barstate.islast
+    table.cell(planPanel, 0, 0, "ALQ PLAN", bgcolor=color.black, text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 0, inCashSession ? (planIsCall ? "LIVE CALL" : "LIVE PUT") : "NEXT SESSION", bgcolor=inCashSession ? (planIsCall ? color.green : color.red) : color.new(color.blue, 20), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 1, "ACTION", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 1, actionText, bgcolor=actionColor, text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 2, "REASON", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 2, reasonText, text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 3, "LIVE TRIGGER", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 3, str.tostring(planActivation, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 4, "LIVE ENTRY", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 4, str.tostring(liveEntryLow, format.mintick) + "-" + str.tostring(liveEntryHigh, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 5, "LIVE STOP", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 5, str.tostring(liveStop, format.mintick), text_color=color.red, text_size=size.tiny)
+    table.cell(planPanel, 0, 6, "LIVE TP1", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 6, str.tostring(liveTP1, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 7, "LIVE TP2", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 7, str.tostring(liveTP2, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 8, "LIVE TP3", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 8, str.tostring(liveTP3, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 9, "LIVE R:R", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 9, na(liveRR) ? "N/A" : "1:" + str.tostring(liveRR, "#.00"), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 10, "BREAKOUT", text_color=color.white, text_size=size.tiny)
+    string breakoutText = not inCashSession ? "CLOSED" : breakoutFailed ? "FAILED" : breakoutRetested ? "RETEST OK" : breakoutDirection == 1 ? "CALL BROKE" : breakoutDirection == -1 ? "PUT BROKE" : "WAIT"
+    table.cell(planPanel, 1, 10, breakoutText, text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 11, "NEXT STATE", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 11, nextStateText, text_color=color.aqua, text_size=size.tiny)
+    table.cell(planPanel, 0, 12, "NEXT BIAS", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 12, nextPlanDirection == 1 ? "CALL" : nextPlanDirection == -1 ? "PUT" : "N/A", bgcolor=nextPlanDirection == 1 ? color.new(color.green, 30) : nextPlanDirection == -1 ? color.new(color.red, 30) : color.black, text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 13, "NEXT TRIGGER", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 13, na(nextTrigger) ? "N/A" : str.tostring(nextTrigger, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 14, "NEXT STOP", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 14, na(nextStop) ? "N/A" : str.tostring(nextStop, format.mintick), text_color=color.red, text_size=size.tiny)
+    table.cell(planPanel, 0, 15, "NEXT TP1", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 15, na(nextTP1) ? "N/A" : str.tostring(nextTP1, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 16, "NEXT TP2", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 16, na(nextTP2) ? "N/A" : str.tostring(nextTP2, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 17, "NEXT TP3", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 17, na(nextTP3) ? "N/A" : str.tostring(nextTP3, format.mintick), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 18, "STRIKE SAFE", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 18, na(nextSafeStrike) ? "N/A" : str.tostring(nextSafeStrike, "#"), text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 0, 19, "STRIKE BASE", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 19, na(nextBaseStrike) ? "N/A" : str.tostring(nextBaseStrike, "#"), text_color=color.aqua, text_size=size.tiny)
+    table.cell(planPanel, 0, 20, "STRIKE FAST", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 20, na(nextFastStrike) ? "N/A" : str.tostring(nextFastStrike, "#"), text_color=color.orange, text_size=size.tiny)
+    table.cell(planPanel, 0, 21, "STRIKE WARN", text_color=color.white, text_size=size.tiny)
+    table.cell(planPanel, 1, 21, nextStrikeWarning, text_color=color.white, text_size=size.tiny)
+else if not showPlanPanel and barstate.islast
+    table.clear(planPanel, 0, 0, 1, 21)
+
+// ALERTS
+alertcondition(newCallBreakout, title="CALL BREAKOUT", message="ALLUQMANI CALL Breakout | {{ticker}} | {{close}}")
+alertcondition(newPutBreakout, title="PUT BREAKOUT", message="ALLUQMANI PUT Breakout | {{ticker}} | {{close}}")
+alertcondition(callSignal, title="READY CALL", message="ALLUQMANI READY CALL | {{ticker}} | {{close}}")
+alertcondition(putSignal, title="READY PUT", message="ALLUQMANI READY PUT | {{ticker}} | {{close}}")
+alertcondition(heroCall, title="HERO CALL", message="ALLUQMANI HERO CALL | {{ticker}} | {{close}}")
+alertcondition(heroPut, title="HERO PUT", message="ALLUQMANI HERO PUT | {{ticker}} | {{close}}")
